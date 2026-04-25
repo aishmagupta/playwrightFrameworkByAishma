@@ -20,6 +20,6 @@ export class LoginPage extends BasePage {
   }
 
   async closeBrowser(): Promise<void> {
-    await this.page.close();
+    await super.closeBrowser();
   }
 }

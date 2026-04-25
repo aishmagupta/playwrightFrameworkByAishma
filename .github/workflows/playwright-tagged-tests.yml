@@ -1,0 +1,114 @@
+name: Playwright Tagged Test Execution
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_suite:
+        description: "Select tests to execute"
+        required: true
+        default: all
+        type: choice
+        options:
+          - smoke
+          - regression
+          - all
+
+jobs:
+  run-playwright-tests:
+    name: Execute Playwright Tests on CI
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Resolve selected suite
+        id: suite
+        run: |
+          if [ "${{ github.event.inputs.test_suite }}" = "smoke" ]; then
+            echo "grep=@smoke" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.inputs.test_suite }}" = "regression" ]; then
+            echo "grep=@regression" >> "$GITHUB_OUTPUT"
+          else
+            echo "grep=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Playwright tests
+        id: run_tests
+        continue-on-error: true
+        run: |
+          if [ -n "${{ steps.suite.outputs.grep }}" ]; then
+            npx playwright test --grep "${{ steps.suite.outputs.grep }}"
+          else
+            npx playwright test
+          fi
+
+      - name: Upload Playwright HTML report
+        id: upload_report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-html-report-${{ github.run_number }}
+          path: playwright-report/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish report links in job summary
+        if: always()
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          ARTIFACT_URL="${{ steps.upload_report.outputs.artifact-url }}"
+          {
+            echo "## Playwright Execution Summary"
+            echo ""
+            echo "- **Selected suite:** \`${{ github.event.inputs.test_suite }}\`"
+            echo "- **Run status:** \`${{ steps.run_tests.outcome }}\`"
+            echo "- **Workflow run:** ${RUN_URL}"
+            if [ -n "${ARTIFACT_URL}" ]; then
+              echo "- **HTML report artifact:** ${ARTIFACT_URL}"
+            else
+              echo "- **HTML report artifact:** Artifact URL not available."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Email report details
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.GMAIL_USER }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "Playwright ${{ github.event.inputs.test_suite }} suite report | Run #${{ github.run_number }} | ${{ steps.run_tests.outcome }}"
+          to: guptaaishma50@gmail.com
+          from: "Playwright CI Bot <${{ secrets.GMAIL_USER }}>"
+          html_body: |
+            <p>Hi Aishma,</p>
+            <p>Your Playwright execution has completed. Here are the details:</p>
+            <ul>
+              <li><b>Repository:</b> ${{ github.repository }}</li>
+              <li><b>Selected suite:</b> ${{ github.event.inputs.test_suite }}</li>
+              <li><b>Status:</b> ${{ steps.run_tests.outcome }}</li>
+              <li><b>Workflow run:</b> <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">Open run</a></li>
+              <li><b>HTML report artifact:</b> <a href="${{ steps.upload_report.outputs.artifact-url }}">Open report artifact</a></li>
+            </ul>
+            <p>Regards,<br/>Automation Architecture Workflow</p>
+
+      - name: Fail job if tests failed
+        if: steps.run_tests.outcome == 'failure'
+        run: exit 1

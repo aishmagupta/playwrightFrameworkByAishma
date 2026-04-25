@@ -25,4 +25,10 @@ export abstract class BasePage {
   getPage(): Page {
     return this.page;
   }
+
+  async closeBrowser(): Promise<void> {
+    console.log('Closing browser');
+    await this.page.close();
+    console.log('Browser closed');
+  }
 }

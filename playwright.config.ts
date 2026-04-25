@@ -11,6 +11,8 @@ export default defineConfig({
     baseURL: 'https://www.saucedemo.com',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
+    headless: process.env.CI === 'true' ? false : true,
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  testMatch: /.*\.spec\.ts/,
 });
