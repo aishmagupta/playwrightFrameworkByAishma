@@ -63,11 +63,62 @@ jobs:
         env:
           PW_WORKERS: ${{ github.event.inputs.worker_count }}
         run: |
+          set +e
           if [ -n "${{ steps.suite.outputs.grep }}" ]; then
-            npx playwright test --grep "${{ steps.suite.outputs.grep }}"
+            npx playwright test --reporter=line --grep "${{ steps.suite.outputs.grep }}" 2>&1 | tee playwright-run.log
           else
-            npx playwright test
+            npx playwright test --reporter=line 2>&1 | tee playwright-run.log
           fi
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=${TEST_EXIT_CODE}" >> "$GITHUB_OUTPUT"
+          exit "${TEST_EXIT_CODE}"
+
+      - name: Compute execution metrics
+        id: metrics
+        if: always()
+        run: |
+          node <<'EOF'
+          const fs = require('fs');
+          const outputFile = process.env.GITHUB_OUTPUT;
+          const logPath = 'playwright-run.log';
+          const write = (key, value) => fs.appendFileSync(outputFile, `${key}=${value}\n`);
+
+          let text = '';
+          if (fs.existsSync(logPath)) {
+            text = fs.readFileSync(logPath, 'utf8');
+          }
+
+          const statusKeys = ['passed', 'failed', 'flaky', 'skipped', 'timed out', 'interrupted'];
+          const counts = {
+            passed: 0,
+            failed: 0,
+            flaky: 0,
+            skipped: 0,
+            'timed out': 0,
+            interrupted: 0,
+          };
+
+          const summaryLines = text
+            .split('\n')
+            .filter((line) => statusKeys.some((key) => line.includes(key)));
+          const summary = summaryLines.length ? summaryLines[summaryLines.length - 1] : '';
+
+          const regex = /(\d+)\s+(passed|failed|flaky|skipped|timed out|interrupted)/g;
+          let match = regex.exec(summary);
+          while (match) {
+            counts[match[2]] = Number(match[1]);
+            match = regex.exec(summary);
+          }
+
+          const total = Object.values(counts).reduce((acc, val) => acc + val, 0);
+          const passPct = total > 0 ? ((counts.passed / total) * 100).toFixed(2) : '0.00';
+
+          write('summary_line', summary || 'No summary line found');
+          write('total_tests', total);
+          write('passed_tests', counts.passed);
+          write('failed_tests', counts.failed);
+          write('pass_percentage', passPct);
+          EOF
 
       - name: Upload Playwright HTML report
         id: upload_report
@@ -101,6 +152,10 @@ jobs:
             echo "- **Selected suite:** \`${{ github.event.inputs.test_suite }}\`"
             echo "- **Worker count:** \`${{ github.event.inputs.worker_count }}\`"
             echo "- **Run status:** \`${{ steps.run_tests.outcome }}\`"
+            echo "- **Total tests:** \`${{ steps.metrics.outputs.total_tests }}\`"
+            echo "- **Passed:** \`${{ steps.metrics.outputs.passed_tests }}\`"
+            echo "- **Failed:** \`${{ steps.metrics.outputs.failed_tests }}\`"
+            echo "- **Pass %:** \`${{ steps.metrics.outputs.pass_percentage }}%\`"
             echo "- **Workflow run:** ${RUN_URL}"
             if [ -n "${ARTIFACT_URL}" ]; then
               echo "- **HTML report artifact:** ${ARTIFACT_URL}"
@@ -148,6 +203,21 @@ jobs:
               <li><b>HTML report artifact:</b> <a href="${{ steps.upload_report.outputs.artifact-url }}">Open report artifact</a></li>
               <li><b>Index file artifact:</b> <a href="${{ steps.upload_report_index.outputs.artifact-url }}">Open index.html artifact</a></li>
             </ul>
+            <p><b>Execution Metrics</b></p>
+            <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; text-align: left;">
+              <tr>
+                <th>Total Tests</th>
+                <th>Passed</th>
+                <th>Failed</th>
+                <th>Pass %</th>
+              </tr>
+              <tr>
+                <td>${{ steps.metrics.outputs.total_tests }}</td>
+                <td>${{ steps.metrics.outputs.passed_tests }}</td>
+                <td>${{ steps.metrics.outputs.failed_tests }}</td>
+                <td>${{ steps.metrics.outputs.pass_percentage }}%</td>
+              </tr>
+            </table>
             <p>The Playwright <code>index.html</code> report is attached to this email.</p>
             <p>Regards,<br/>Automation Architecture Workflow</p>
           attachments: playwright-report/index.html
