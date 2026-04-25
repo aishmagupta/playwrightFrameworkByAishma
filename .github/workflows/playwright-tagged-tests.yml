@@ -79,11 +79,22 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Upload Playwright report index file
+        id: upload_report_index
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-index-${{ github.run_number }}
+          path: playwright-report/index.html
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Publish report links in job summary
         if: always()
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           ARTIFACT_URL="${{ steps.upload_report.outputs.artifact-url }}"
+          INDEX_ARTIFACT_URL="${{ steps.upload_report_index.outputs.artifact-url }}"
           {
             echo "## Playwright Execution Summary"
             echo ""
@@ -96,7 +107,22 @@ jobs:
             else
               echo "- **HTML report artifact:** Artifact URL not available."
             fi
+            if [ -n "${INDEX_ARTIFACT_URL}" ]; then
+              echo "- **index.html artifact:** ${INDEX_ARTIFACT_URL}"
+            else
+              echo "- **index.html artifact:** Artifact URL not available."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Ensure report index attachment exists
+        if: always()
+        run: |
+          if [ ! -f "playwright-report/index.html" ]; then
+            mkdir -p playwright-report
+            cat <<'EOF' > playwright-report/index.html
+            <html><body><h2>Playwright report not available</h2><p>The test run did not generate an HTML report file.</p></body></html>
+            EOF
+          fi
 
       - name: Email report details
         if: always()
@@ -120,8 +146,11 @@ jobs:
               <li><b>Status:</b> ${{ steps.run_tests.outcome }}</li>
               <li><b>Workflow run:</b> <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">Open run</a></li>
               <li><b>HTML report artifact:</b> <a href="${{ steps.upload_report.outputs.artifact-url }}">Open report artifact</a></li>
+              <li><b>Index file artifact:</b> <a href="${{ steps.upload_report_index.outputs.artifact-url }}">Open index.html artifact</a></li>
             </ul>
+            <p>The Playwright <code>index.html</code> report is attached to this email.</p>
             <p>Regards,<br/>Automation Architecture Workflow</p>
+          attachments: playwright-report/index.html
 
       - name: Fail job if tests failed
         if: steps.run_tests.outcome == 'failure'
