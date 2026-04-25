@@ -12,6 +12,16 @@ on:
           - smoke
           - regression
           - all
+      worker_count:
+        description: "Number of parallel workers"
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "3"
+          - "4"
 
 jobs:
   run-playwright-tests:
@@ -50,6 +60,8 @@ jobs:
       - name: Run Playwright tests
         id: run_tests
         continue-on-error: true
+        env:
+          PW_WORKERS: ${{ github.event.inputs.worker_count }}
         run: |
           if [ -n "${{ steps.suite.outputs.grep }}" ]; then
             npx playwright test --grep "${{ steps.suite.outputs.grep }}"
@@ -76,6 +88,7 @@ jobs:
             echo "## Playwright Execution Summary"
             echo ""
             echo "- **Selected suite:** \`${{ github.event.inputs.test_suite }}\`"
+            echo "- **Worker count:** \`${{ github.event.inputs.worker_count }}\`"
             echo "- **Run status:** \`${{ steps.run_tests.outcome }}\`"
             echo "- **Workflow run:** ${RUN_URL}"
             if [ -n "${ARTIFACT_URL}" ]; then
@@ -103,6 +116,7 @@ jobs:
             <ul>
               <li><b>Repository:</b> ${{ github.repository }}</li>
               <li><b>Selected suite:</b> ${{ github.event.inputs.test_suite }}</li>
+              <li><b>Worker count:</b> ${{ github.event.inputs.worker_count }}</li>
               <li><b>Status:</b> ${{ steps.run_tests.outcome }}</li>
               <li><b>Workflow run:</b> <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">Open run</a></li>
               <li><b>HTML report artifact:</b> <a href="${{ steps.upload_report.outputs.artifact-url }}">Open report artifact</a></li>
